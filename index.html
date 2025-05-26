@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Blackjack Rule Simulator (Functional)</title>
+  <style>
+    body { font-family: sans-serif; padding: 20px; background: #f4f4f4; }
+    .game-area { margin-top: 20px; max-height: 300px; overflow-y: auto; background: #fff; padding: 10px; border: 1px solid #ccc; }
+    .card { display: inline-block; padding: 10px; margin: 5px; background: white; border: 1px solid #ccc; }
+    .controls, .stats { margin-top: 20px; }
+    input[type=number] { width: 50px; }
+  </style>
+</head>
+<body>
+  <h1>Blackjack Rule Simulator</h1>
+  <div class="controls">
+    <label>Stand At or Above: <input id="standAbove" type="number" value="17"></label>
+    <label>Cycles: <input id="cycles" type="number" value="10"></label>
+    <button id="startBtn">Start</button>
+  </div>
+
+  <div class="stats">
+    <p>Bankroll: $<span id="bankroll">0</span></p>
+    <p>Wins: <span id="wins">0</span> | Losses: <span id="losses">0</span> | Pushes: <span id="pushes">0</span></p>
+  </div>
+
+  <div class="game-area" id="gameArea"></div>
+
+  <script>
+    // ---------- Core Pure Functions ----------
+    const getCard = () => {
+      const ranks = [2, 3, 4, 5, 6, 7, 8, 9, 10, 10, 10, 10, 11];
+      return ranks[Math.floor(Math.random() * ranks.length)];
+    };
+
+    const calculateHand = hand => {
+      let total = hand.reduce((sum, card) => sum + card, 0);
+      let aces = hand.filter(c => c === 11).length;
+      while (total > 21 && aces-- > 0) total -= 10;
+      return total;
+    };
+
+    const drawUntil = (hand, threshold) => {
+      return calculateHand(hand) >= threshold ? hand : drawUntil([...hand, getCard()], threshold);
+    };
+
+    const determineOutcome = (playerTotal, dealerTotal) => {
+      if (playerTotal > 21) return 'loss';
+      if (dealerTotal > 21 || playerTotal > dealerTotal) return 'win';
+      if (playerTotal === dealerTotal) return 'push';
+      return 'loss';
+    };
+
+    const applyResult = (state, result) => {
+      switch (result) {
+        case 'win': return { ...state, bankroll: state.bankroll + 10, wins: state.wins + 1 };
+        case 'loss': return { ...state, bankroll: state.bankroll - 10, losses: state.losses + 1 };
+        case 'push': return { ...state, pushes: state.pushes + 1 };
+        default: return state;
+      }
+    };
+
+    const runRound = (config) => {
+      const player = drawUntil([getCard(), getCard()], config.standAbove);
+      const dealer = drawUntil([getCard(), getCard()], 17);
+      const playerTotal = calculateHand(player);
+      const dealerTotal = calculateHand(dealer);
+      const result = determineOutcome(playerTotal, dealerTotal);
+
+      return {
+        player,
+        dealer,
+        playerTotal,
+        dealerTotal,
+        result
+      };
+    };
+
+    // ---------- Rendering (Pure-ish) ----------
+    const formatHand = (title, hand, total) =>
+      `<div><strong>${title} (${total}):</strong> ${hand.map(c => `<span class="card">${c}</span>`).join('')}</div>`;
+
+    const formatResultMessage = result => {
+      switch (result) {
+        case 'win': return '<div>✅ You win!</div>';
+        case 'loss': return '<div>❌ You lose.</div>';
+        case 'push': return '<div>⚪ Push.</div>';
+      }
+    };
+
+    const renderStats = state => {
+      document.getElementById('bankroll').textContent = state.bankroll.toFixed(2);
+      document.getElementById('wins').textContent = state.wins;
+      document.getElementById('losses').textContent = state.losses;
+      document.getElementById('pushes').textContent = state.pushes;
+    };
+
+    const renderRound = ({ player, dealer, playerTotal, dealerTotal, result }) => {
+      const gameArea = document.getElementById('gameArea');
+      const output = [
+        formatHand('Player', player, playerTotal),
+        formatHand('Dealer', dealer, dealerTotal),
+        formatResultMessage(result)
+      ];
+      gameArea.innerHTML += output.join('');
+    };
+
+    // ---------- State Management ----------
+    const loadInitialState = () => ({
+      bankroll: parseFloat(localStorage.getItem('bankroll')) || 100,
+      wins: 0,
+      losses: 0,
+      pushes: 0
+    });
+
+    const persistState = state => {
+      localStorage.setItem('bankroll', state.bankroll);
+    };
+
+    // ---------- Simulation Runner ----------
+    const runSimulation = (config, cycles, initialState, onUpdate, onFinish) => {
+      let state = { ...initialState };
+      let current = 0;
+
+      const step = () => {
+        if (current >= cycles) return onFinish(state);
+        const round = runRound(config);
+        renderRound(round);
+        state = applyResult(state, round.result);
+        onUpdate(state);
+        current++;
+        setTimeout(step, 200);
+      };
+
+      step();
+    };
+
+    // ---------- Event Binding ----------
+    document.getElementById('startBtn').addEventListener('click', () => {
+      const button = document.getElementById('startBtn');
+      const gameArea = document.getElementById('gameArea');
+      const standAbove = parseInt(document.getElementById('standAbove').value);
+      const cycles = parseInt(document.getElementById('cycles').value);
+      const config = { standAbove };
+      const initialState = loadInitialState();
+
+      button.disabled = true;
+      gameArea.innerHTML = '';
+      renderStats(initialState);
+
+      runSimulation(config, cycles, initialState,
+        (newState) => {
+          renderStats(newState);
+          persistState(newState);
+        },
+        (finalState) => {
+          renderStats(finalState);
+          persistState(finalState);
+          button.disabled = false;
+        }
+      );
+    });
+
+    // ---------- On Load ----------
+    renderStats(loadInitialState());
+  </script>
+</body>
+</html>
