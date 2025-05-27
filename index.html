@@ -1,17 +1,45 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Blackjack Rule Simulator (Functional)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Blackjack Rule Simulator (Persistent)</title>
   <style>
-    body { font-family: sans-serif; padding: 20px; background: #f4f4f4; }
-    .game-area { margin-top: 20px; max-height: 50vh; overflow-y: auto; background: #fff; padding: 10px; border: 1px solid #ccc; }
-    .card { display: inline-block; padding: 10px; margin: 5px; background: white; border: 1px solid #ccc; }
-    .controls, .stats { margin-top: 20px; }
-    input[type=number] { width: 50px; }
+    body {
+      font-family: sans-serif;
+      padding: 20px;
+      background: #f4f4f4;
+    }
+
+    .game-area {
+      margin-top: 20px;
+      max-height: 50vh;
+      overflow-y: auto;
+      background: #fff;
+      padding: 10px;
+      border: 1px solid #ccc;
+    }
+
+    .card {
+      display: inline-block;
+      padding: 10px;
+      margin: 5px;
+      background: white;
+      border: 1px solid #ccc;
+    }
+
+    .controls,
+    .stats {
+      margin-top: 20px;
+    }
+
+    input[type=number] {
+      width: 50px;
+    }
   </style>
 </head>
+
 <body>
   <h1>Blackjack Rule Simulator</h1>
   <div class="controls">
@@ -23,6 +51,7 @@
   <div class="stats">
     <p>Bankroll: $<span id="bankroll">0</span></p>
     <p>Wins: <span id="wins">0</span> | Losses: <span id="losses">0</span> | Pushes: <span id="pushes">0</span></p>
+    <p>Games Played: <span id="gamesPlayed">0</span></p>
   </div>
 
   <div class="game-area" id="gameArea"></div>
@@ -54,30 +83,81 @@
 
     const applyResult = (state, result) => {
       switch (result) {
-        case 'win': return { ...state, bankroll: state.bankroll + 10, wins: state.wins + 1 };
-        case 'loss': return { ...state, bankroll: state.bankroll - 10, losses: state.losses + 1 };
-        case 'push': return { ...state, pushes: state.pushes + 1 };
-        default: return state;
+        case 'blackjack_win':
+          return {
+            ...state,
+            bankroll: state.bankroll + 15, // 3:2 payout on $10 bet
+            blackjackWins: (state.blackjackWins || 0) + 1,
+            wins: state.wins + 1,
+            gamesPlayed: state.gamesPlayed + 1
+          };
+        case 'win':
+          return {
+            ...state,
+            bankroll: state.bankroll + 10,
+            wins: state.wins + 1,
+            gamesPlayed: state.gamesPlayed + 1
+          };
+        case 'loss':
+          return {
+            ...state,
+            bankroll: state.bankroll - 10,
+            losses: state.losses + 1,
+            gamesPlayed: state.gamesPlayed + 1
+          };
+        case 'push':
+          return {
+            ...state,
+            pushes: state.pushes + 1,
+            gamesPlayed: state.gamesPlayed + 1
+          };
+        default:
+          return state;
       }
     };
 
+
     const runRound = (config) => {
-      const player = drawUntil([getCard(), getCard()], config.standAbove);
-      const dealer = drawUntil([getCard(), getCard()], 17);
+      const player = [getCard(), getCard()];
+      const dealer = [getCard(), getCard()];
       const playerTotal = calculateHand(player);
       const dealerTotal = calculateHand(dealer);
-      const result = determineOutcome(playerTotal, dealerTotal);
+
+      const playerBlackjack = playerTotal === 21 && player.length === 2;
+      const dealerBlackjack = dealerTotal === 21 && dealer.length === 2;
+
+      let finalPlayer = player;
+      let finalDealer = dealer;
+      let finalPlayerTotal = playerTotal;
+      let finalDealerTotal = dealerTotal;
+      let result = 'push';
+
+      if (playerBlackjack && dealerBlackjack) {
+        result = 'push';
+      } else if (playerBlackjack) {
+        result = 'blackjack_win';
+      } else if (dealerBlackjack) {
+        result = 'loss';
+      } else {
+        // Normal play
+        finalPlayer = drawUntil(player, config.standAbove);
+        finalDealer = drawUntil(dealer, 17);
+        finalPlayerTotal = calculateHand(finalPlayer);
+        finalDealerTotal = calculateHand(finalDealer);
+        result = determineOutcome(finalPlayerTotal, finalDealerTotal);
+      }
 
       return {
-        player,
-        dealer,
-        playerTotal,
-        dealerTotal,
+        player: finalPlayer,
+        dealer: finalDealer,
+        playerTotal: finalPlayerTotal,
+        dealerTotal: finalDealerTotal,
         result
       };
     };
 
-    // ---------- Rendering (Pure-ish) ----------
+
+    // ---------- Rendering ----------
     const formatHand = (title, hand, total) =>
       `<div><strong>${title} (${total}):</strong> ${hand.map(c => `<span class="card">${c}</span>`).join('')}</div>`;
 
@@ -94,6 +174,7 @@
       document.getElementById('wins').textContent = state.wins;
       document.getElementById('losses').textContent = state.losses;
       document.getElementById('pushes').textContent = state.pushes;
+      document.getElementById('gamesPlayed').textContent = state.gamesPlayed;
     };
 
     const renderRound = ({ player, dealer, playerTotal, dealerTotal, result }) => {
@@ -101,21 +182,58 @@
       const output = [
         formatHand('Player', player, playerTotal),
         formatHand('Dealer', dealer, dealerTotal),
-        formatResultMessage(result)
+        formatResultMessage(result),
+        '<hr>'
       ];
       gameArea.innerHTML += output.join('');
+      gameArea.scrollTop = gameArea.scrollHeight; // auto-scroll to bottom
     };
 
     // ---------- State Management ----------
-    const loadInitialState = () => ({
-      bankroll: parseFloat(localStorage.getItem('bankroll')) || 100,
-      wins: 0,
-      losses: 0,
-      pushes: 0
-    });
+    const STORAGE_KEY = 'blackjack_sim_state';
+
+    const loadInitialState = () => {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (saved) {
+        try {
+          const parsed = JSON.parse(saved);
+          // Provide defaults for missing properties
+          return {
+            bankroll: typeof parsed.bankroll === 'number' ? parsed.bankroll : 100,
+            wins: typeof parsed.wins === 'number' ? parsed.wins : 0,
+            losses: typeof parsed.losses === 'number' ? parsed.losses : 0,
+            pushes: typeof parsed.pushes === 'number' ? parsed.pushes : 0,
+            gamesPlayed: typeof parsed.gamesPlayed === 'number' ? parsed.gamesPlayed : 0,
+            standAbove: typeof parsed.standAbove === 'number' ? parsed.standAbove : 17,
+            cycles: typeof parsed.cycles === 'number' ? parsed.cycles : 10,
+          };
+        } catch {
+          // If JSON parse fails, return defaults
+          return {
+            bankroll: 100,
+            wins: 0,
+            losses: 0,
+            pushes: 0,
+            gamesPlayed: 0,
+            standAbove: 17,
+            cycles: 10,
+          };
+        }
+      }
+      // No saved data
+      return {
+        bankroll: 100,
+        wins: 0,
+        losses: 0,
+        pushes: 0,
+        gamesPlayed: 0,
+        standAbove: 17,
+        cycles: 10,
+      };
+    };
 
     const persistState = state => {
-      localStorage.setItem('bankroll', state.bankroll);
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
     };
 
     // ---------- Simulation Runner ----------
@@ -140,10 +258,17 @@
     document.getElementById('startBtn').addEventListener('click', () => {
       const button = document.getElementById('startBtn');
       const gameArea = document.getElementById('gameArea');
-      const standAbove = parseInt(document.getElementById('standAbove').value);
-      const cycles = parseInt(document.getElementById('cycles').value);
+      const standAboveInput = document.getElementById('standAbove');
+      const cyclesInput = document.getElementById('cycles');
+
+      const standAbove = parseInt(standAboveInput.value);
+      const cycles = parseInt(cyclesInput.value);
       const config = { standAbove };
-      const initialState = loadInitialState();
+
+      // Load saved state, but overwrite standAbove and cycles to current inputs
+      let initialState = loadInitialState();
+      initialState.standAbove = standAbove;
+      initialState.cycles = cycles;
 
       button.disabled = true;
       gameArea.innerHTML = '';
@@ -152,18 +277,35 @@
       runSimulation(config, cycles, initialState,
         (newState) => {
           renderStats(newState);
-          persistState(newState);
+          // Persistant with updated inputs
+          persistState({
+            ...newState,
+            standAbove,
+            cycles
+          });
         },
         (finalState) => {
           renderStats(finalState);
-          persistState(finalState);
+          persistState({
+            ...finalState,
+            standAbove,
+            cycles
+          });
           button.disabled = false;
         }
       );
     });
 
     // ---------- On Load ----------
-    renderStats(loadInitialState());
+    window.addEventListener('load', () => {
+      const state = loadInitialState();
+
+      document.getElementById('standAbove').value = state.standAbove;
+      document.getElementById('cycles').value = state.cycles;
+
+      renderStats(state);
+    });
   </script>
 </body>
+
 </html>
